@@ -182,7 +182,7 @@ IpuTarget Processor::construct_target_data(const Target t)
 {
     IpuTarget new_target;
     new_target.id=t.id;
-    cv::Mat img = get_pixels_from_rotated_rect(cv::minAreaRect(generate_model_image_points(generate_model_points(t.pose))));
+    cv::Mat img = get_pixels_from_rotated_rect(cv::minAreaRect(generate_model_image_points(generate_model_points(t.pose.pose))));
     new_target.texture=img;
     cv::Mat hsv;
     cv::cvtColor(img, hsv, CV_BGR2HSV);
