@@ -9,7 +9,7 @@ set(OpenCV_DIR /home/nair/workspace/opencv-3.1.0/build)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
-  image_geometry
+  image_transport
   roscpp
   roslib
   rospy
@@ -22,6 +22,8 @@ find_package(catkin REQUIRED COMPONENTS
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED )
+# Qt library
+
 
 FIND_PACKAGE( OpenMP REQUIRED)
 if(OPENMP_FOUND)
@@ -120,7 +122,7 @@ endif()
 catkin_package(
   INCLUDE_DIRS include
 #  LIBRARIES ipu_server
-  CATKIN_DEPENDS cv_bridge image_geometry roscpp roslib rospy ipu_msgs std_msgs std_srvs
+  CATKIN_DEPENDS cv_bridge roscpp roslib rospy ipu_msgs std_msgs std_srvs
 #  DEPENDS system_lib
 )
 

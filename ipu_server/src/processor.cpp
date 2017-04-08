@@ -2,20 +2,59 @@
 
 namespace ipu {
 Processor::Processor()
-    :intrinsics_(3, 3, cv::DataType<double>::type), rotation_(3, 1, cv::DataType<double>::type),
+    :ipu_id_(0), intrinsics_(3, 3, cv::DataType<double>::type), rotation_(3, 1, cv::DataType<double>::type),
       translation_(3, 1, cv::DataType<double>::type), distortion_coeff_(5, 1, cv::DataType<double>::type),
       cam_to_zero_(4, 4, cv::DataType<double>::type)
 {
+    std::cout << "Opening Camera." << std::endl;
+    camera_handle_ = cv::VideoCapture(0);
+    if(!camera_handle_.isOpened()){  // check if we succeeded{
+        std::cout << "Error: cannot open camera" << std::endl;
+        throw;
+    }
+
+
     model_dimensions_.x=500.0;
     model_dimensions_.y=500.0;
     model_dimensions_.z=1800.0;
 
     pMOG2_ = createBackgroundSubtractorMOG2();
+
+    scan_zone_map_.clear();
+    float x_span_min=0.0;
+    float x_span_max=0.0;
+    float y_span_min=0.0;
+    float y_span_max=0.0;
+    float step=100.0f;
+
+    for(float x=-x_span_min; x < x_span_max; x=+step ){
+        for(float y=-y_span_min; y < y_span_max; y=+step ){
+            ScanSpot spot;
+            spot.pose.x=x;
+            spot.pose.y=y;
+            spot.pose.z=0.0+model_dimensions_.z/2.0f;
+            geometry_msgs::Pose pose;
+            pose.position.x=spot.pose.x;pose.position.y=spot.pose.y;pose.position.z=spot.pose.z;
+            pose.orientation.x=0.0;pose.orientation.y=0.0;pose.orientation.z=0.0;pose.orientation.w=1.0;
+            spot.rect = cv::minAreaRect(generate_model_image_points(generate_model_points(pose)));
+            spot.area = get_pixels_from_rotated_rect(spot.rect);
+        }
+    }
 }
 
-void Processor::set_targets(const Targets t)
+void Processor::add_targets(const Targets ts)
 {
-    targets_=t;
+    for(Target t:ts.targets){
+        IpuTarget ipu_target=construct_target_data(t);
+        ipu_target_map_[ipu_target.id]=ipu_target;
+    }
+}
+
+void Processor::remove_targets(const Targets ts)
+{
+    for(Target t:ts.targets){
+        ipu_target_map_.erase(t.id);
+    }
 }
 
 void Processor::update_background(const cv::Mat in)
@@ -23,24 +62,18 @@ void Processor::update_background(const cv::Mat in)
 
 }
 
-Mat Processor::process_foreground(const Mat in)
+void Processor::process_foreground()
 {
-    pMOG2_->apply(in, fg_mask_MOG2_);
-
-    return fg_mask_MOG2_;
+    pMOG2_->apply(camera_curent_image_, fg_mask_MOG2_);
 }
 
-cv::Mat Processor::process_rgb2hsv(const cv::Mat in)
+void Processor::process_rgb2hsv()
 {
     cv::Mat hsv;
 
-    cv::Mat out;
+    cv::cvtColor(camera_curent_image_, hsv, CV_RGB2HSV);
 
-    cv::cvtColor(in, hsv, CV_RGB2HSV);
-
-    hsv.copyTo(out, fg_mask_MOG2_);
-
-    return out;
+    hsv.copyTo(hsv_curent_image_, fg_mask_MOG2_);
 }
 
 void Processor::update_occlusion()
@@ -76,12 +109,22 @@ void Processor::update_occlusion()
     }
 }
 
-bool Processor::is_occluded(const geometry_msgs::Pose pose)
+TargetEvalResult Processor::evaluate_targets(TargetEval ts)
 {
-    bool occluded=true;
-    //project pose
+    TargetEvalResult result;
 
-    return occluded;
+
+    return result;
+}
+
+Mat Processor::get_camera_image()
+{
+    return camera_curent_image_;
+}
+
+void Processor::update_current_image()
+{
+    camera_handle_ >> camera_curent_image_;
 }
 
 cv::MatND Processor::generate_2d_hist(const cv::Mat hsv, int h_bins, int s_bins)
@@ -104,6 +147,53 @@ cv::MatND Processor::generate_2d_hist(const cv::Mat hsv, int h_bins, int s_bins)
     cv::normalize( histo_2d, histo_2d, 0, 1, NORM_MINMAX, -1, Mat() );
 
     return histo_2d;
+}
+
+std::vector<float> Processor::compute_distance(geometry_msgs::PoseArray pose_array)
+{
+    std::vector<float> dist_array;
+
+    return dist_array;
+}
+
+Mat Processor::get_pixels_from_rotated_rect(RotatedRect rect)
+{
+    // matrices we'll use
+    Mat M, rotated, cropped;
+    // get angle and size from the bounding box
+    float angle = rect.angle;
+    Size rect_size = rect.size;
+    // thanks to http://felix.abecassis.me/2011/10/opencv-rotation-deskewing/
+    if (rect.angle < -45.) {
+        angle += 90.0;
+        swap(rect_size.width, rect_size.height);
+    }
+    // get the rotation matrix
+    M = getRotationMatrix2D(rect.center, angle, 1.0);
+    // perform the affine transformation
+    warpAffine(camera_curent_image_, rotated, M, camera_curent_image_.size(), INTER_CUBIC);
+    // crop the resulting image
+    getRectSubPix(rotated, rect_size, rect.center, cropped);
+
+    return cropped;
+}
+
+IpuTarget Processor::construct_target_data(const Target t)
+{
+    IpuTarget new_target;
+    new_target.id=t.id;
+    cv::Mat img = get_pixels_from_rotated_rect(cv::minAreaRect(generate_model_image_points(generate_model_points(t.pose))));
+    new_target.texture=img;
+    cv::Mat hsv;
+    cv::cvtColor(img, hsv, CV_BGR2HSV);
+    new_target.histo=generate_2d_hist(hsv);
+    std::stringstream filename;
+    filename.clear();
+    filename << "Target_"<<new_target.id<< "_Ipu_"<<ipu_id_<<".jpg";
+    cv::imwrite(filename.str(), img);
+
+    return new_target;
+
 }
 
 Points3f Processor::generate_model_points(const geometry_msgs::Pose pose)

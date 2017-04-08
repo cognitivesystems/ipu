@@ -7,10 +7,16 @@
 #include <opencv/cxmisc.h>
 #include <opencv2/imgproc.hpp>
 #include <ipu_msgs/Targets.h>
+#include <geometry_msgs/PoseArray.h>
+#include <ipu_msgs/EvaluateTargets.h>
+#include <sstream>
 
 using namespace cv;
 using namespace std;
 using namespace ipu_msgs;
+
+typedef std::vector<cv::Point3f > Points3f;
+typedef std::vector<cv::Point2f > Points2f;
 
 struct CuboidModelPoints{
     Point3f t1,t2,t3,t4;
@@ -23,8 +29,21 @@ struct CuboidModelDims{
     float z;
 };
 
-typedef std::vector<cv::Point3f > Points3f;
-typedef std::vector<cv::Point2f > Points2f;
+struct ScanSpot{
+    cv::Point3f pose;
+    cv::RotatedRect rect;
+    cv::Mat area;
+};
+
+typedef std::vector<ScanSpot > ScanZone;
+
+struct IpuTarget{
+    uint id;
+    cv::Mat texture;
+    cv::MatND histo;
+};
+
+typedef std::map<uint, IpuTarget > IpuTargetMap;
 
 namespace ipu {
 class Processor
@@ -32,19 +51,25 @@ class Processor
 public:
     Processor();
 
-    void set_targets(const Targets t);
+    void scan_foreground();
+
+    void add_targets(const Targets ts);
+
+    void remove_targets(const Targets ts);
 
     void update_background(const cv::Mat in);
 
-    cv::Mat process_foreground(const cv::Mat in);
+    void process_foreground();
 
-    cv::Mat process_rgb2hsv(const cv::Mat in);
+    void process_rgb2hsv();
 
     void update_occlusion();
 
-    bool is_occluded(const geometry_msgs::Pose pose);
+    ipu_msgs::TargetEvalResult evaluate_targets(ipu_msgs::TargetEval ts);
 
-    cv::MatND generate_2d_hist(const cv::Mat hsv, int h_bins=50, int s_bins=60);
+    cv::Mat get_camera_image();
+
+    void update_current_image();
 
 private:
     Points3f generate_model_points(const geometry_msgs::Pose pose);
@@ -53,7 +78,17 @@ private:
 
     double compute_distance_from_camera(const Target t);
 
+    cv::MatND generate_2d_hist(const cv::Mat hsv, int h_bins=50, int s_bins=60);
+
+    std::vector<float> compute_distance(geometry_msgs::PoseArray pose_array);
+
+    cv::Mat get_pixels_from_rotated_rect(RotatedRect rect);
+
+    IpuTarget construct_target_data(const Target t);
+
 private:
+    uint ipu_id_;
+
     Ptr<BackgroundSubtractor> pMOG2_;
 
     cv::Mat fg_mask_MOG2_;
@@ -71,6 +106,17 @@ private:
     cv::Mat cam_to_zero_;
 
     Targets targets_;
+
+    std::map<int, ScanSpot> scan_zone_map_;
+
+    VideoCapture camera_handle_;
+
+    cv::Mat camera_curent_image_;
+
+    cv::Mat hsv_curent_image_;
+
+    IpuTargetMap ipu_target_map_;
+
 };
 
 
