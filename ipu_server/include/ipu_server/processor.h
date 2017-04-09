@@ -10,6 +10,7 @@
 #include <geometry_msgs/PoseArray.h>
 #include <ipu_msgs/EvaluateTargets.h>
 #include <sstream>
+#include <ros/package.h>
 
 using namespace cv;
 using namespace std;
@@ -30,6 +31,7 @@ struct CuboidModelDims{
 };
 
 struct ScanSpot{
+    int id;
     cv::Point3f pose;
     cv::RotatedRect rect;
     cv::Mat area;
@@ -51,6 +53,8 @@ class Processor
 public:
     Processor();
 
+    void load_configuration();
+
     void scan_foreground();
 
     void add_targets(const Targets ts);
@@ -69,12 +73,16 @@ public:
 
     cv::Mat get_camera_image();
 
+    cv::Mat get_output_image();
+
     void update_current_image();
+
+    void draw_detection_area();
 
 private:
     Points3f generate_model_points(const geometry_msgs::Pose pose);
 
-    Points2f generate_model_image_points(const Points3f p);
+    Points2f generate_model_image_points(const Points3f ps);
 
     double compute_distance_from_camera(const Target t);
 
@@ -87,7 +95,7 @@ private:
     IpuTarget construct_target_data(const Target t);
 
 private:
-    uint ipu_id_;
+    int ipu_id_;
 
     Ptr<BackgroundSubtractor> pMOG2_;
 
@@ -97,9 +105,15 @@ private:
 
     cv::Mat intrinsics_;
 
-    cv::Mat rotation_;
+    cv::Mat rotation_matrix_;
 
     cv::Mat translation_;
+
+    cv::Mat tr_cam_to_world_;
+
+    cv::Mat tr_cam_to_target_;
+
+    cv::Mat tr_target_to_world_;
 
     cv::Mat distortion_coeff_;
 
@@ -112,6 +126,8 @@ private:
     VideoCapture camera_handle_;
 
     cv::Mat camera_curent_image_;
+
+    cv::Mat output_curent_image_;
 
     cv::Mat hsv_curent_image_;
 

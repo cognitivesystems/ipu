@@ -11,13 +11,14 @@ image_transport::Publisher pub;
 
 void publish_debug_image(){
     processor_handle.update_current_image();
+    processor_handle.draw_detection_area();
     cv_bridge::CvImage cv_img;
-    cv_img.image=processor_handle.get_camera_image();
+    cv_img.image=processor_handle.get_output_image();
     sensor_msgs::ImageConstPtr msg;
     msg=cv_img.toImageMsg();
     pub.publish(msg);
-//    cv::imshow("img", cv_img.image);
-//    cv::waitKey(10);
+    cv::imshow("img", cv_img.image);
+    cv::waitKey(10);
 
 }
 

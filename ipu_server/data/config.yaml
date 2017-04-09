@@ -1,0 +1,20 @@
+%YAML:1.0
+ipu_id: 0
+K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 593.84, 0, 346.12, 0, 594.11, 235.45, 0, 0, 1 ]
+
+R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.708, 0.706, 0.021, 0.425, -0.403, -0.810, -0.564, 0.582, -0.585 ]
+T: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ -157.78, 702.89, 3635.07 ]
+
+

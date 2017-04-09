@@ -2,44 +2,107 @@
 
 namespace ipu {
 Processor::Processor()
-    :ipu_id_(0), intrinsics_(3, 3, cv::DataType<double>::type), rotation_(3, 1, cv::DataType<double>::type),
+    :ipu_id_(0), intrinsics_(3, 3, cv::DataType<double>::type), rotation_matrix_(3, 3, cv::DataType<double>::type),
       translation_(3, 1, cv::DataType<double>::type), distortion_coeff_(5, 1, cv::DataType<double>::type),
       cam_to_zero_(4, 4, cv::DataType<double>::type)
 {
+    load_configuration();
+
     std::cout << "Opening Camera." << std::endl;
-    camera_handle_ = cv::VideoCapture(0);
+//    camera_handle_ = cv::VideoCapture(ipu_id_);
+    camera_handle_ = cv::VideoCapture("/home/nair/Desktop/cam0.avi");
+
     if(!camera_handle_.isOpened()){  // check if we succeeded{
         std::cout << "Error: cannot open camera" << std::endl;
         throw;
     }
 
+    camera_handle_ >> camera_curent_image_;
 
-    model_dimensions_.x=500.0;
-    model_dimensions_.y=500.0;
+    model_dimensions_.x=100.0;
+    model_dimensions_.y=100.0;
     model_dimensions_.z=1800.0;
 
     pMOG2_ = createBackgroundSubtractorMOG2();
 
     scan_zone_map_.clear();
     float x_span_min=0.0;
-    float x_span_max=0.0;
+    float x_span_max=1000.0;
     float y_span_min=0.0;
-    float y_span_max=0.0;
+    float y_span_max=1000.0;
     float step=100.0f;
 
-    for(float x=-x_span_min; x < x_span_max; x=+step ){
-        for(float y=-y_span_min; y < y_span_max; y=+step ){
+    std::cout << "Generating Scan Area data" << std::endl;
+
+    int counter=0;
+    for(float x=x_span_min; x < x_span_max; x=x+step ){
+        for(float y=y_span_min; y < y_span_max; y=y+step ){
             ScanSpot spot;
-            spot.pose.x=x;
-            spot.pose.y=y;
-            spot.pose.z=0.0+model_dimensions_.z/2.0f;
+            spot.id=counter++;
+            spot.pose.x=0.0;
+            spot.pose.y=counter;
+            spot.pose.z=0.0;//+model_dimensions_.z/2.0f;
             geometry_msgs::Pose pose;
             pose.position.x=spot.pose.x;pose.position.y=spot.pose.y;pose.position.z=spot.pose.z;
             pose.orientation.x=0.0;pose.orientation.y=0.0;pose.orientation.z=0.0;pose.orientation.w=1.0;
             spot.rect = cv::minAreaRect(generate_model_image_points(generate_model_points(pose)));
             spot.area = get_pixels_from_rotated_rect(spot.rect);
+            scan_zone_map_[spot.id]=spot;
+            std::cout << x << " " << y << std::endl;
+            std::cout << spot.rect.size.area() << std::endl;
+
         }
     }
+
+//    ScanSpot spot;
+//    spot.id=counter++;
+//    spot.pose.x=0.0;
+//    spot.pose.y=0.0;
+//    spot.pose.z=0.0;
+//    geometry_msgs::Pose pose;
+//    pose.position.x=spot.pose.x;pose.position.y=spot.pose.y;pose.position.z=spot.pose.z;
+//    pose.orientation.x=0.0;pose.orientation.y=0.0;pose.orientation.z=0.0;pose.orientation.w=1.0;
+//    spot.rect = cv::minAreaRect(generate_model_image_points(generate_model_points(pose)));
+//    spot.area = get_pixels_from_rotated_rect(spot.rect);
+//    scan_zone_map_[spot.id]=spot;
+
+    std::cout << "Generating Scan Area data done" << std::endl;
+
+}
+
+void Processor::load_configuration()
+{
+    //    std::string config_file_path=ros::package::getPath("/ipu_server_node")+"/config.yaml";
+    std::string config_file_path="/home/nair/catkin_ipu/src/ipu_server/data/config.yaml";
+
+    FileStorage fs(config_file_path, FileStorage::READ);
+
+    ipu_id_=fs["ipu_id"];
+    fs["K"] >> intrinsics_;
+    fs["R"] >> rotation_matrix_;
+    fs["T"] >> translation_;
+
+    tr_cam_to_world_=cv::Mat::eye(4, 4, cv::DataType<double>::type);
+    tr_cam_to_target_=cv::Mat::eye(4, 4, cv::DataType<double>::type);
+    tr_target_to_world_=cv::Mat::eye(4, 4, cv::DataType<double>::type);
+
+    distortion_coeff_.at<double>(0,0)=0.0;
+    distortion_coeff_.at<double>(1,0)=0.0;
+    distortion_coeff_.at<double>(2,0)=0.0;
+    distortion_coeff_.at<double>(3,0)=0.0;
+    distortion_coeff_.at<double>(4,0)=0.0;
+
+    std::cout << "rotation_matrix_" << std::endl;
+    std::cout << rotation_matrix_ << std::endl;
+
+    rotation_matrix_.copyTo(tr_cam_to_world_(cv::Rect(0,0,3,3)));
+
+    std::cout << "tr_cam_to_world_" << std::endl;
+    std::cout << tr_cam_to_world_ << std::endl;
+
+    std::cout << intrinsics_ << std::endl;
+    std::cout << rotation_matrix_ << std::endl;
+    std::cout << translation_ << std::endl;
 }
 
 void Processor::add_targets(const Targets ts)
@@ -122,9 +185,36 @@ Mat Processor::get_camera_image()
     return camera_curent_image_;
 }
 
+Mat Processor::get_output_image()
+{
+    return output_curent_image_;
+}
+
 void Processor::update_current_image()
 {
     camera_handle_ >> camera_curent_image_;
+    camera_curent_image_.copyTo(output_curent_image_);
+
+}
+
+void Processor::draw_detection_area()
+{
+    std::cout << "scan_zone_map_ size --> " << scan_zone_map_.size() << std::endl;
+    Points3f ps;
+    ps.clear();
+    for(size_t i=0;i<scan_zone_map_.size();++i){
+        ScanSpot spot=scan_zone_map_[i];
+        Point3f p;
+        p.x=spot.pose.x;
+        p.y=spot.pose.y;
+        p.z=spot.pose.z;
+        ps.push_back(p);
+    }
+    Points2f ps_2d=generate_model_image_points(ps);
+
+    for(Point2f p2:ps_2d){
+        cv::circle(output_curent_image_, cv::Point((int)(p2.x), (int)(p2.y)), 2, cv::Scalar(0,255,0), 2);
+    }
 }
 
 cv::MatND Processor::generate_2d_hist(const cv::Mat hsv, int h_bins, int s_bins)
@@ -193,7 +283,6 @@ IpuTarget Processor::construct_target_data(const Target t)
     cv::imwrite(filename.str(), img);
 
     return new_target;
-
 }
 
 Points3f Processor::generate_model_points(const geometry_msgs::Pose pose)
@@ -219,11 +308,31 @@ Points3f Processor::generate_model_points(const geometry_msgs::Pose pose)
     return points;
 }
 
-Points2f Processor::generate_model_image_points(const Points3f p)
+Points2f Processor::generate_model_image_points(const Points3f ps)
 {
     Points2f points_2d;
+    Points3f points_cam_3d;
+    points_cam_3d.clear();
 
-    cv::projectPoints(p, rotation_, translation_, intrinsics_, distortion_coeff_, points_2d);
+    for(Point3f p:ps){
+        tr_target_to_world_.at<double>(0,3)=p.x;
+        tr_target_to_world_.at<double>(1,3)=p.y;
+        tr_target_to_world_.at<double>(2,3)=p.z;
+        std::cout << "Before --> " << p.x << " " << p.y << " " << p.z << std::endl;
+
+        tr_cam_to_target_=tr_cam_to_world_*tr_target_to_world_;
+        p.x=tr_cam_to_target_.at<double>(0,3);
+        p.y=tr_cam_to_target_.at<double>(1,3);
+        p.z=tr_cam_to_target_.at<double>(2,3);
+        points_cam_3d.push_back(p);
+
+        std::cout << "After --> " << p.x << " " << p.y << " " << p.z << std::endl;
+
+    }
+
+    if(points_cam_3d.size()>0){
+        cv::projectPoints(points_cam_3d, rotation_matrix_, translation_, intrinsics_, distortion_coeff_, points_2d);
+    }
 
     return points_2d;
 }
